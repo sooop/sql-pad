@@ -70,6 +70,17 @@ export function statementIndexAt(stmts, pos) {
   return stmts.length - 1;
 }
 
+/**
+ * 캐럿 위치(pos)가 속한 문의 본문 범위. Ctrl+Enter 가 실행하는 문과 같은 규칙을 쓴다.
+ * @returns {{from:number,to:number}|null} 문 본문(start..end). 문이 없으면 null.
+ */
+export function statementRangeAt(sql, pos) {
+  const stmts = splitStatements(sql);
+  const i = statementIndexAt(stmts, pos);
+  if (i < 0) return null;
+  return { from: stmts[i].start, to: stmts[i].end };
+}
+
 /** 문의 첫 단어(대문자). SELECT, INSERT, WITH 등. */
 export function statementKind(text) {
   const t = tokenize(text).find((x) => x.type === 'word' || x.type === 'keyword');

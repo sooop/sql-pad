@@ -31,6 +31,12 @@ let browser;
 let page;
 const errors = [];
 
+// 편집기 접근은 DOM 값이 아니라 window.__sqlpad 계약(getSql/setSql/setCursor)으로 한다.
+const getSql = () => page.evaluate(() => window.__sqlpad.getSql());
+const setSql = (v) => page.evaluate((v) => window.__sqlpad.setSql(v), v);
+const setCursor = (pos) => page.evaluate((p) => window.__sqlpad.setCursor(p), pos);
+const focusEditor = () => page.evaluate(() => window.__sqlpad.editor.focus());
+
 before(async () => {
   if (skip) return;
   browser = await pw.chromium.launch({ executablePath: chromePath, args: ['--no-sandbox'] });
@@ -44,12 +50,12 @@ after(async () => { if (browser) await browser.close(); });
 
 const shot = async (name) => { if (shots) await page.screenshot({ path: path.join(shots, name + '.png') }); };
 const runAll = async (sql) => {
-  await page.fill('#sql', sql);
+  await setSql(sql);
   await page.click('#btn-run-all');
 };
 
 test('시작: 편집기는 비어 있고 포커스가 있다', { skip }, async () => {
-  assert.equal(await page.inputValue('#sql'), '');
+  assert.equal(await getSql(), '');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'sql');
   assert.equal(await page.locator('.file-item').count(), 0);
 });
@@ -99,8 +105,10 @@ test('쿼리 실행: 여러 문, 오류, 한도', { skip }, async () => {
 });
 
 test('커서 위치의 문만 실행(Ctrl+Enter)', { skip }, async () => {
-  await page.fill('#sql', 'SELECT 111 AS a;\n\nSELECT 222 AS b;');
-  await page.evaluate(() => { const t = document.querySelector('#sql'); t.focus(); t.setSelectionRange(t.value.length - 3, t.value.length - 3); });
+  const sql = 'SELECT 111 AS a;\n\nSELECT 222 AS b;';
+  await setSql(sql);
+  await focusEditor();
+  await setCursor(sql.length - 3);
   await page.keyboard.press('Control+Enter');
   await page.waitForFunction(() => /222/.test(document.querySelector('#pane-results').textContent));
   assert.ok(!/111/.test(await page.textContent('#pane-results table.grid')));
@@ -116,7 +124,7 @@ test('쓰기 쿼리: 변경됨 표시, 스키마 갱신, 처음 상태로 되돌
 });
 
 test('취소: 오래 걸리는 쿼리를 중단하고 DB를 다시 연다', { skip }, async () => {
-  await page.fill('#sql', 'WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM c;');
+  await setSql('WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM c;');
   await page.click('#btn-run');
   await page.waitForSelector('#btn-cancel:not([hidden])');
   await page.click('#btn-cancel');
@@ -141,13 +149,13 @@ test('내역: 중복은 한 건, 서랍 조작, 불러오기', { skip }, async (
   assert.ok(await page.locator('#drawer mark').count() >= 1);
   await shot('3-drawer');
   await page.click('[data-act="d-load"]');
-  assert.equal(await page.inputValue('#sql'), 'SELECT 42 AS answer');
+  assert.equal(await getSql(), 'SELECT 42 AS answer');
   assert.equal(await page.evaluate(() => document.querySelector('#app').inert), false);
   assert.equal(await page.evaluate(() => document.activeElement.id), 'sql');
 });
 
 test('저장한 쿼리와 백업 가져오기', { skip }, async () => {
-  await page.fill('#sql', 'SELECT * FROM Genre');
+  await setSql('SELECT * FROM Genre');
   await page.click('#btn-save');
   await page.waitForSelector('#d-name');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'd-name');
@@ -184,7 +192,7 @@ test('파일 열기: DB와 SQL 텍스트를 내용으로 판별, 잘못된 파�
   fs.writeFileSync(path.join(tmp, 'q.sql'), 'SELECT 7 AS seven;');
   fs.writeFileSync(path.join(tmp, 'junk.bin'), Buffer.from([0, 1, 2, 3, 255, 254, 0, 9, 9, 9]));
   await page.setInputFiles('#file-input', [path.join(tmp, 'noext'), path.join(tmp, 'q.sql'), path.join(tmp, 'junk.bin')]);
-  await page.waitForFunction(() => document.querySelector('#sql').value === 'SELECT 7 AS seven;' && /junk\.bin/.test(document.querySelector('#side-status').textContent));
+  await page.waitForFunction(() => window.__sqlpad.getSql() === 'SELECT 7 AS seven;' && /junk\.bin/.test(document.querySelector('#side-status').textContent));
   assert.equal(await page.locator('.file-item').count(), 2);
   assert.match(await page.textContent('#side-status'), /junk\.bin/);
   assert.equal(await page.locator('.file-item.active .file-name').textContent(), 'noext');
@@ -208,7 +216,7 @@ test('파일 드롭: 영역 강조와 열기', { skip }, async () => {
     const dropEv = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt });
     target.dispatchEvent(dropEv);
     await new Promise((r) => setTimeout(r, 300));
-    return { highlighted, prevented: dropEv.defaultPrevented, cleared: !document.body.hasAttribute('data-dragover'), text: document.querySelector('#sql').value };
+    return { highlighted, prevented: dropEv.defaultPrevented, cleared: !document.body.hasAttribute('data-dragover'), text: window.__sqlpad.getSql() };
   });
   assert.equal(result.highlighted, true);
   assert.equal(result.prevented, true);
@@ -219,13 +227,16 @@ test('파일 드롭: 영역 강조와 열기', { skip }, async () => {
 
 test('예시 넣기와 구문 강조, 줄번호', { skip }, async () => {
   await page.click('.file-item:first-child [data-act="activate"]');
-  await page.fill('#sql', '');
+  await setSql('');
   await page.click('#btn-example');
-  const v = await page.inputValue('#sql');
+  const v = await getSql();
   assert.match(v, /SELECT/);
-  assert.ok(await page.locator('#hl .t-kw').count() > 3);
+  assert.ok(await page.locator('#editor-box .t-kw').count() > 3);
   const lines = v.split('\n').length;
-  assert.equal((await page.textContent('#gutter')).split('\n').length, lines);
+  // 편집기 문서의 줄 수와 CodeMirror 가 아는 줄 수가 같고, 줄번호 거터에 1번이 보인다
+  assert.equal(await page.evaluate(() => window.__sqlpad.editor.view.state.doc.lines), lines);
+  const nums = await page.locator('.cm-lineNumbers .cm-gutterElement').allTextContents();
+  assert.ok(nums.some((t) => t.trim() === '1'), '줄번호 1이 보여야 한다');
   await page.click('#btn-run-all');
   await page.waitForFunction(() => document.querySelectorAll('#pane-results .chip').length >= 2);
   const errs = await page.locator('#pane-results .chip.err').count();
@@ -236,7 +247,7 @@ test('예시 넣기와 구문 강조, 줄번호', { skip }, async () => {
 test('Northwind 예시 쿼리도 오류 없이 실행된다', { skip }, async () => {
   await page.evaluate(() => window.__sqlpad.openSample('northwind'));
   await page.waitForFunction(() => document.querySelectorAll('.file-item').length === 3);
-  await page.fill('#sql', '');
+  await setSql('');
   await page.click('#btn-example');
   await page.click('#btn-run-all');
   await page.waitForFunction(() => document.querySelectorAll('#pane-results .chip').length >= 4);
@@ -248,9 +259,13 @@ test('테마 전환은 저장되고 새로고침 뒤에도 유지된다', { skip
   await page.click('#btn-theme'); // dark
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
   await shot('5-dark');
+  // 초안은 500ms 디바운스로 저장되므로 저장될 시간을 준 뒤 새로고침 전 값을 기록한다
+  await page.waitForTimeout(700);
+  const draft = await getSql();
+  assert.ok(draft.length > 0, '새로고침 전 편집기에 내용이 있어야 한다');
   await page.reload();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
-  assert.equal(await page.inputValue('#sql'), ''); // 새로고침 뒤 편집기는 비어 있다
+  assert.equal(await getSql(), draft); // 편집기 초안은 새로고침 뒤 복원된다
   await page.click('#btn-history');
   await page.waitForSelector('#drawer:not([hidden])');
   await page.keyboard.press('Escape');
@@ -274,6 +289,75 @@ test('좁은 화면: 사이드바 패널과 가로 스크롤 없음', { skip }, 
   const fs16 = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#sql')).fontSize));
   assert.ok(fs16 >= 16);
   await shot('6-mobile');
+});
+
+test('Tab 들여쓰기: 커서 줄, 선택 영역 여러 줄, Shift+Tab 내어쓰기', { skip }, async () => {
+  await setSql('SELECT 1,\n2');
+  await focusEditor();
+  await setCursor(10); // 두 번째 줄 처음
+  await page.keyboard.press('Tab');
+  assert.equal(await getSql(), 'SELECT 1,\n  2');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await getSql(), 'SELECT 1,\n2');
+
+  await page.evaluate(() => {
+    const view = window.__sqlpad.editor.view;
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+  });
+  await page.keyboard.press('Tab');
+  assert.equal(await getSql(), '  SELECT 1,\n  2');
+});
+
+test('스키마 자동완성: 활성 DB의 테이블 이름 제안', { skip }, async () => {
+  // 활성 DB 확인은 상단 라벨로 한다. Chinook 이 아니면 샘플을 연다.
+  const isChinook = await page.evaluate(() => /chinook/i.test((document.querySelector('#active-label') || {}).textContent || ''));
+  if (!isChinook) {
+    await page.evaluate(() => window.__sqlpad.openSample('chinook'));
+    await page.waitForFunction(() => document.querySelectorAll('.obj').length === 11);
+  }
+  await setSql('SELECT * FROM Ar');
+  await focusEditor();
+  await setCursor('SELECT * FROM Ar'.length);
+  await page.keyboard.type('t');
+  await page.waitForSelector('.cm-tooltip-autocomplete li[role=option]');
+  await page.waitForFunction(() => [...document.querySelectorAll('.cm-tooltip-autocomplete li[role=option]')].some((li) => /Artist/.test(li.textContent)));
+  await page.waitForTimeout(150); // 자동완성은 팝업 직후 75ms(interactionDelay) 안의 Enter 를 무시한다
+  await page.keyboard.press('Enter');
+  assert.match(await getSql(), /FROM Artist$/);
+});
+
+test('멀티 커서: Ctrl+Alt+아래 방향키와 Ctrl+D 다음 일치 선택', { skip }, async () => {
+  await setSql('a\nb\nc');
+  await focusEditor();
+  await setCursor(0);
+  await page.keyboard.press('Control+Alt+ArrowDown');
+  await page.keyboard.press('Control+Alt+ArrowDown');
+  assert.equal(await page.evaluate(() => window.__sqlpad.editor.view.state.selection.ranges.length), 3);
+  await page.keyboard.type('x');
+  assert.equal(await getSql(), 'xa\nxb\nxc');
+
+  await setSql('foo foo foo');
+  await focusEditor();
+  await page.evaluate(() => {
+    const view = window.__sqlpad.editor.view;
+    view.dispatch({ selection: { anchor: 0, head: 3 } });
+  });
+  await page.keyboard.press('Control+d');
+  await page.keyboard.press('Control+d');
+  assert.equal(await page.evaluate(() => window.__sqlpad.editor.view.state.selection.ranges.length), 3);
+});
+
+test('현재 문 강조: 커서가 속한 문의 줄만 표시, 선택 영역이 있으면 표시 없음', { skip }, async () => {
+  await setSql('SELECT 1;\n\nSELECT 2;');
+  await focusEditor();
+  await setCursor(12);
+  assert.ok(await page.locator('.cm-stmt-current').count() >= 1);
+  assert.match(await page.locator('.cm-stmt-current').first().textContent(), /SELECT 2/);
+  await page.evaluate(() => {
+    const view = window.__sqlpad.editor.view;
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+  });
+  assert.equal(await page.locator('.cm-stmt-current').count(), 0);
 });
 
 test('콘솔과 페이지 오류가 없다', { skip }, async () => {

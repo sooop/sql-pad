@@ -11,7 +11,7 @@ npm test             # 단위 테스트 + e2e. playwright나 Chrome이 없으면
 SQLPAD_SHOTS=/tmp/shots node --test test/e2e.test.mjs   # 스크린샷 저장
 ```
 
-e2e는 `dist/sqlpad.html`을 연다. Chrome은 Linux, Windows, macOS 기본 설치 경로에서 찾고, 다른 곳에 있으면 `SQLPAD_CHROME` 환경 변수로 경로를 준다. UI를 고친 뒤에는 `npm run build`를 먼저 실행한다.
+e2e는 `dist/sqlpad.html`을 연다. Chrome은 Linux, Windows, macOS 기본 설치 경로에서 찾고, 다른 곳에 있으면 `SQLPAD_CHROME` 환경 변수로 경로를 준다. UI를 고친 뒤에는 `npm run build`를 먼저 실행한다. 편집기 값은 `window.__sqlpad.getSql()`/`setSql()`로 읽고 쓴다(contenteditable이라 `page.fill`을 쓰지 않는다).
 
 ## 작업 규칙
 
@@ -34,12 +34,12 @@ e2e는 `dist/sqlpad.html`을 연다. Chrome은 Linux, Windows, macOS 기본 설�
 
 ## 알아둘 점
 
-- 편집기는 투명한 `textarea` 아래에 강조된 `pre`를 겹친 구조다. 둘의 글꼴, 줄 높이, 안쪽 여백이 같아야 하고, 스크롤바 두께는 `measureScrollbars()`가 `--sb`, `--sbx`로 보정한다. 편집기 CSS를 고치면 `syncEditor()` 동작과 줄 정렬을 e2e 스크린샷으로 확인한다.
+- 편집기는 CodeMirror 6(`src/ui/editor.js`)이다. 색과 글꼴은 JS 테마를 쓰지 않고 `styles.css`의 `.editor .cm-*` 선택자와 CSS 변수로 지정한다. 구문 강조는 `HighlightStyle`이 기존 클래스(`t-kw` 등)에 매핑하고, 현재 문 강조는 `src/ui/editor-statement.js`에 있다. 스키마 자동완성은 `editor.setSchema()`에 `{테이블: [열]}`을 넘긴다. 편집기 내용은 초안(`kvSet('draft', ...)`)으로 저장된다.
 - 워커 소스는 `sql-wasm.js` 뒤에 `src/worker/entry.js` 번들을 이어 붙인 것이다(`scripts/build.mjs`). 워커 안에서 `import`로 sql.js를 가져오지 않는다.
 - `<input type="file">`에 `accept`를 두지 않았다. iOS에서 `.sqlite` 같은 확장자 파일이 비활성으로 보일 수 있어서다. 형식은 읽은 내용으로 판별한다.
 - 저장소는 `store.js`가 IndexedDB, localStorage, 메모리 순으로 조용히 넘어간다. 저장소를 못 써도 앱은 동작해야 한다.
 - Node 22의 `node --test`는 디렉터리 대신 글롭을 받는다(`'test/*.test.mjs'`).
-- 디버깅용으로 `window.__sqlpad`에 `state`, `run`, `openSample`, `handleFiles`가 노출되어 있다.
+- 디버깅용으로 `window.__sqlpad`에 `state`, `run`, `openSample`, `handleFiles`, `editor`, `getSql`, `setSql`, `setCursor`가 노출되어 있다.
 
 ## 샘플 DB 추가
 

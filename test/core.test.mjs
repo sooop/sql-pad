@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import { splitStatements, statementIndexAt, statementKind } from '../src/core/sqlsplit.js';
+import { splitStatements, statementIndexAt, statementKind, statementRangeAt } from '../src/core/sqlsplit.js';
 import { highlightHtml } from '../src/core/highlight.js';
 import { toDelimited, cellToText, identForSql } from '../src/core/format.js';
 import { createEngine } from '../src/core/engine.js';
@@ -31,6 +31,40 @@ test('statementIndexAt: 캐럿 위치별 문 선택', () => {
   assert.equal(statementIndexAt(s, sql.length), 1);
   assert.equal(statementIndexAt([], 0), -1);
   assert.equal(statementKind('  with a as (select 1) select * from a'), 'WITH');
+});
+
+test('statementRangeAt: 캐럿이 속한 문의 본문 범위', () => {
+  const sql = 'select 1; select 2;';
+  assert.deepEqual(statementRangeAt(sql, 3), { from: 0, to: 8 }); // 첫 문 중간
+  assert.deepEqual(statementRangeAt(sql, 9), { from: 0, to: 8 }); // 세미콜론 바로 뒤는 앞 문
+  assert.deepEqual(statementRangeAt(sql, 12), { from: 10, to: 18 }); // 둘째 문 중간
+  assert.deepEqual(statementRangeAt(sql, sql.length), { from: 10, to: 18 }); // 문서 끝
+});
+
+test('statementRangeAt: 빈 문서와 공백만 있는 문서는 null', () => {
+  assert.equal(statementRangeAt('', 0), null);
+  assert.equal(statementRangeAt('  \n\t ', 2), null);
+});
+
+test('statementRangeAt: 주석 사이 캐럿은 실행 규칙과 같은 문', () => {
+  const sql = 'select 1;\n-- 주석 줄\nselect 2';
+  const second = { from: sql.indexOf('select 2'), to: sql.length };
+  assert.deepEqual(statementRangeAt(sql, sql.indexOf('주석')), second);
+  assert.deepEqual(statementRangeAt(sql, 2), { from: 0, to: 8 });
+  assert.equal(statementIndexAt(splitStatements(sql), sql.indexOf('주석')), 1);
+});
+
+test('statementRangeAt: 마지막 문 뒤 공백과 앞쪽 공백', () => {
+  const sql = '   select 1;   \n  ';
+  assert.deepEqual(statementRangeAt(sql, sql.length), { from: 3, to: 11 });
+  assert.deepEqual(statementRangeAt(sql, 0), { from: 3, to: 11 });
+});
+
+test('statementRangeAt: 여러 줄 문의 중간 캐럿은 문 전체 범위', () => {
+  const sql = 'select a,\n  b\nfrom t;\nselect 2';
+  const first = { from: 0, to: sql.indexOf(';') };
+  assert.deepEqual(statementRangeAt(sql, sql.indexOf('b')), first);
+  assert.deepEqual(statementRangeAt(sql, sql.indexOf('from')), first);
 });
 
 test('highlightHtml: 이스케이프와 클래스', () => {

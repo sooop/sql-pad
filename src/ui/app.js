@@ -8,8 +8,19 @@ import { createWorkerClient } from './worker-client.js';
 import { kvGet, kvSet, loadSettings, saveSettings } from './store.js';
 import { SAMPLES, sampleForName, genericExample } from './samples.js';
 import { bindDropZone } from './dropzone.js';
+import { createEditor } from './editor.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
+
+// 편집기와 초안 자동 저장(변경 500ms 뒤)
+let draftTimer = 0;
+const editor = createEditor(document.getElementById('editor-box'), {
+  onRun: (mode) => run(mode),
+  onChange: (text) => {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => kvSet('draft', text), 500);
+  },
+});
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const MAX_DB_BYTES = 256 * 1024 * 1024;
 const fmtN = (n) => Number(n).toLocaleString('ko-KR');
@@ -377,6 +388,7 @@ function activate(id) {
   state.selected = null;
   state.detail = null;
   state.preview = null;
+  pushSchema();
   renderFiles();
   renderTree();
   showBottom('results');
@@ -467,6 +479,7 @@ async function loadPreview(offset) {
 
 /** 스키마가 바뀐 뒤 트리와 선택한 테이블 상세를 다시 맞춘다. */
 async function afterSchemaChange(s) {
+  if (s.id === state.activeId) pushSchema();
   renderTree();
   const sel = state.selected;
   if (sel && sel.sid === s.id) {
@@ -492,14 +505,14 @@ async function run(mode) {
     renderResults();
     return;
   }
-  const ta = $('#sql');
-  const text = ta.value;
+  const text = editor.getValue();
+  const sel = editor.getSelection();
   let sql;
   if (mode === 'all') sql = text;
-  else if (ta.selectionEnd > ta.selectionStart) sql = text.slice(ta.selectionStart, ta.selectionEnd);
+  else if (sel.to > sel.from) sql = text.slice(sel.from, sel.to);
   else {
     const stmts = splitStatements(text);
-    const i = statementIndexAt(stmts, ta.selectionStart);
+    const i = statementIndexAt(stmts, sel.from);
     sql = i >= 0 ? stmts[i].text : '';
   }
   if (!sql.trim() || !splitStatements(sql).length) {
@@ -573,12 +586,9 @@ async function recordHistory(sql, dbName) {
 
 /** 편집기 내용을 바꾼다. 교체되는 기존 입력은 내역에 남긴다. */
 function setEditorSql(text, { focus = false } = {}) {
-  const ta = $('#sql');
-  const prev = ta.value;
+  const prev = editor.getValue();
   if (prev.trim() && prev.trim() !== text.trim()) recordHistory(prev, activeSession() ? activeSession().name : '');
-  ta.value = text;
-  syncEditor();
-  if (focus) { ta.focus(); ta.setSelectionRange(text.length, text.length); }
+  editor.setValue(text, { focus });
 }
 
 function markHtml(text, words) {
@@ -630,7 +640,7 @@ function renderDrawer(focusFirst) {
   }
   const isSaved = d.tab === 'saved';
   const saveForm = isSaved
-    ? `<form id="d-save-form" class="field-row"><input id="d-name" class="text-in" type="text" placeholder="이름" aria-label="저장할 이름" maxlength="80" autocomplete="off"><button class="btn primary" type="submit"${$('#sql').value.trim() ? '' : ' disabled'}>저장</button></form>`
+    ? `<form id="d-save-form" class="field-row"><input id="d-name" class="text-in" type="text" placeholder="이름" aria-label="저장할 이름" maxlength="80" autocomplete="off"><button class="btn primary" type="submit"${editor.getValue().trim() ? '' : ' disabled'}>저장</button></form>`
     : '';
   body.innerHTML = `${saveForm}
     <div class="field-row"><input id="d-search" type="search" placeholder="검색" aria-label="검색" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(d.query)}"></div>
@@ -768,37 +778,13 @@ async function copyText(text) {
 }
 
 // ---------- 편집기 ----------
-function syncEditor() {
-  const ta = $('#sql');
-  $('#hl').innerHTML = highlightHtml(ta.value);
-  const n = ta.value.split('\n').length;
-  $('#gutter').textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n');
-  syncScroll();
-  requestAnimationFrame(measureScrollbars);
-}
-function syncScroll() {
-  const ta = $('#sql');
-  const hl = $('#hl');
-  hl.scrollTop = ta.scrollTop;
-  hl.scrollLeft = ta.scrollLeft;
-  $('#gutter').scrollTop = ta.scrollTop;
-}
-function measureScrollbars() {
-  const ta = $('#sql');
-  const box = $('#editor-box');
-  box.style.setProperty('--sb', Math.max(0, ta.offsetHeight - ta.clientHeight) + 'px');
-  box.style.setProperty('--sbx', Math.max(0, ta.offsetWidth - ta.clientWidth) + 'px');
-  syncScroll();
-}
-
-function insertAtCaret(text) {
-  const ta = $('#sql');
-  ta.focus();
-  if (!document.execCommand || !document.execCommand('insertText', false, text)) {
-    const a = ta.selectionStart;
-    ta.setRangeText(text, a, ta.selectionEnd, 'end');
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
-  }
+/** 활성 DB 의 테이블·열 이름을 자동완성에 넘긴다. */
+function pushSchema() {
+  const s = activeSession();
+  if (!s) { editor.setSchema(null); return; }
+  const schema = {};
+  for (const o of s.objects) schema[o.name] = (o.columns || []).map((c) => c.name);
+  editor.setSchema(schema);
 }
 
 const KEYS = ['(', ')', ',', "'", '"', '*', '=', '<', '>', '%', '_', '.', ';', '||', '-', '/'];
@@ -810,7 +796,7 @@ function buildKeybar() {
   kb.addEventListener('mousedown', keep);
   kb.addEventListener('click', (e) => {
     const b = e.target.closest('[data-key]');
-    if (b) insertAtCaret(b.dataset.key);
+    if (b) editor.insertText(b.dataset.key);
   });
 }
 
@@ -819,16 +805,9 @@ function insertExample() {
   if (!s) return;
   const meta = s.sampleId ? SAMPLES.find((x) => x.id === s.sampleId) : sampleForName(s.name);
   const text = meta ? meta.examples : genericExample(s.objects);
-  const ta = $('#sql');
-  const cur = ta.value;
+  const cur = editor.getValue();
   const next = cur.trim() ? cur.replace(/\s*$/, '') + '\n\n' + text : text;
-  ta.value = next;
-  syncEditor();
-  ta.focus();
-  const caret = cur.trim() ? cur.replace(/\s*$/, '').length + 2 : 0;
-  ta.setSelectionRange(caret, caret);
-  ta.scrollTop = cur.trim() ? ta.scrollHeight : 0;
-  syncScroll();
+  editor.setValue(next, { focus: true, cursor: cur.trim() ? cur.replace(/\s*$/, '').length + 2 : 0 });
 }
 
 // ---------- 테마, 패널 ----------
@@ -843,7 +822,6 @@ function applyTheme() {
 }
 function applyEditorHeight() {
   document.documentElement.style.setProperty('--editor-h', settings.editorH + 'px');
-  requestAnimationFrame(measureScrollbars);
 }
 
 function openNav() {
@@ -872,16 +850,7 @@ function toggleSampleMenu(force) {
 // ---------- 이벤트 연결 ----------
 function bindEvents() {
   // 편집기
-  const ta = $('#sql');
-  ta.addEventListener('input', syncEditor);
-  ta.addEventListener('scroll', syncScroll);
-  ta.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      run(e.shiftKey ? 'all' : 'current');
-    }
-  });
-  window.addEventListener('resize', () => requestAnimationFrame(measureScrollbars));
+  // Ctrl/Cmd+Enter 는 editor 의 onRun 으로 들어온다
   $('#btn-run').addEventListener('click', () => run('current'));
   $('#btn-run-all').addEventListener('click', () => run('all'));
   $('#btn-cancel').addEventListener('click', cancelRun);
@@ -951,7 +920,7 @@ function bindEvents() {
       closeNav();
     } else if (b.dataset.act === 'col') {
       closeNav();
-      insertAtCaret(identForSql(b.dataset.col));
+      editor.insertText(identForSql(b.dataset.col));
     }
   });
 
@@ -978,9 +947,8 @@ function bindEvents() {
       renderTablePane();
       if (state.detailTab === 'data' && !state.preview) loadPreview(0);
     } else if (a === 'insert-select' && state.detail) {
-      const ta = $('#sql');
       const q = `SELECT * FROM ${identForSql(state.detail.name)} LIMIT 100;`;
-      const cur = ta.value.replace(/\s*$/, '');
+      const cur = editor.getValue().replace(/\s*$/, '');
       setEditorSql(cur ? cur + '\n\n' + q + '\n' : q + '\n', { focus: true });
     } else if (a === 'prev') loadPreview(Math.max(0, state.preview.offset - settings.previewSize));
     else if (a === 'next') loadPreview(state.preview.offset + settings.previewSize);
@@ -1034,7 +1002,7 @@ function bindEvents() {
   $('#drawer').addEventListener('submit', async (e) => {
     e.preventDefault();
     if (e.target.id !== 'd-save-form') return;
-    const r = H.upsertSaved(state.saved, { name: $('#d-name').value, sql: $('#sql').value });
+    const r = H.upsertSaved(state.saved, { name: $('#d-name').value, sql: editor.getValue() });
     if (r.status === 'full') { notify(`저장한 쿼리는 ${H.LIMITS.savedMax}건까지입니다. 하나를 삭제한 뒤 저장하세요.`); return; }
     if (r.status === 'oversize') { notify('SQL이 너무 길어 저장하지 못했습니다.'); return; }
     if (r.status === 'empty') return;
@@ -1063,14 +1031,18 @@ async function boot() {
   applyEditorHeight();
   buildKeybar();
   bindEvents();
-  syncEditor();
   showBottom('results');
   renderFiles();
   renderTree();
   await loadStores();
-  $('#sql').focus();
+  const draft = await kvGet('draft', '');
+  if (typeof draft === 'string' && draft.trim()) editor.setValue(draft, { cursor: 'end' });
+  editor.focus();
   if (window.matchMedia('(max-width: 899px)').matches) openNav();
-  window.__sqlpad = { state, run, openSample, handleFiles }; // 테스트와 디버깅용
+  window.__sqlpad = {
+    state, run, openSample, handleFiles, editor,
+    getSql: () => editor.getValue(), setSql: (t) => editor.setValue(t), setCursor: (p) => editor.setCursor(p),
+  }; // 테스트와 디버깅용
 }
 
 boot();
