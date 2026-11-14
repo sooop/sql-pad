@@ -3,7 +3,7 @@
   import { activeSession } from '../state.svelte.js';
   import { humanBytes } from '../../core/format.js';
   import { SAMPLES } from '../samples.js';
-  import { activate, closeSession, resetSession, exportSession, selectObject, insertColumn, dismissNotice, openSample, fmtN } from '../actions.js';
+  import { activate, closeSession, resetSession, exportSession, selectObject, insertColumn, dismissNotice, openSample, fmtN, quickSelect } from '../actions.js';
 
   const s = $derived(activeSession());
   const words = $derived(app.filter.toLowerCase().split(/\s+/).filter(Boolean));
@@ -76,7 +76,8 @@
           <div class="obj" data-name={o.name}>
             <div class="obj-row" class:selected={sel}>
               <button class="obj-toggle" type="button" data-act="toggle" aria-expanded={open} aria-label="{o.name} 열 목록" title="열 목록" onclick={() => toggle(o.name)}><svg class="ic"><use href="#i-chevron"/></svg></button>
-              <button class="obj-name" type="button" data-act="select" aria-current={sel ? 'true' : undefined} onclick={() => select(o.name)}><svg class="ic"><use href={o.type === 'view' ? '#i-eye' : '#i-table'}/></svg><span class="t">{o.name}</span><span class="n">{o.rowCount === null ? '' : fmtN(o.rowCount)}</span></button>
+              <button class="obj-name" type="button" data-act="select" aria-current={sel ? 'true' : undefined} title="Ctrl+클릭: 새 탭에서 조회" onclick={(e) => (e.ctrlKey || e.metaKey ? quickSelect(o.name) : select(o.name))}><svg class="ic"><use href={o.type === 'view' ? '#i-eye' : '#i-table'}/></svg><span class="t">{o.name}</span><span class="n">{o.rowCount === null ? '' : fmtN(o.rowCount)}</span></button>
+              <button class="quick" type="button" aria-label="새 탭에서 조회" title="새 탭에서 조회" onclick={() => quickSelect(o.name)}><svg class="ic"><use href="#i-play"/></svg></button>
             </div>
             {#if open}
               <ul class="cols">

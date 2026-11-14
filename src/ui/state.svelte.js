@@ -39,8 +39,14 @@ class AppState {
   preview = $state.raw(null); // { offset, loading? , error? , data? }
   history = $state.raw([]);
   saved = $state.raw([]);
+  // 쿼리 편집기 탭. 문서(EditorState)는 반응형 밖의 tabStates 에 둔다.
+  tabs = $state([]); // [{ id, name, auto }] name: 사용자가 정한 이름 또는 '', auto: 자동 이름
+  activeTab = $state(null);
 }
 export const app = new AppState();
+
+/** 탭 id -> EditorState (실행 취소 내역·커서 포함). 활성 탭의 최신 상태는 편집기 view 에 있다. */
+export const tabStates = new Map();
 
 export const getSession = (id) => app.sessions.find((s) => s.id === id) || null;
 export const activeSession = () => getSession(app.activeId);

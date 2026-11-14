@@ -360,6 +360,100 @@ test('현재 문 강조: 커서가 속한 문의 줄만 표시, 선택 영역이
   assert.equal(await page.locator('.cm-stmt-current').count(), 0);
 });
 
+const tabList = () => page.evaluate(() => window.__sqlpad.tabs.list());
+const tabCount = () => page.locator('.qtab').count();
+
+test('쿼리 탭: 새 탭, 내용·커서 독립, 닫기', { skip }, async () => {
+  await page.setViewportSize({ width: 1360, height: 860 });
+  // 앞선 테스트가 남긴 탭을 정리해 탭 1개, 빈 편집기에서 시작한다
+  await page.evaluate(() => { const t = window.__sqlpad.tabs; for (const x of t.list().slice(1)) t.close(x.id); });
+  await setSql('');
+  assert.equal(await tabCount(), 1);
+  assert.equal(await page.locator('.qtab[aria-selected="true"]').count(), 1);
+  assert.equal(await page.getAttribute('#btn-tab-add', 'aria-label'), '새 탭');
+  await setSql('SELECT 1');
+  await setCursor(3);
+  await page.click('#btn-tab-add');
+  assert.equal(await tabCount(), 2);
+  assert.equal(await getSql(), '');
+  await setSql('SELECT 2');
+  await page.locator('.qtab').nth(0).click();
+  assert.equal(await getSql(), 'SELECT 1');
+  assert.equal(await page.evaluate(() => window.__sqlpad.editor.getSelection().from), 3); // 커서 위치 유지
+  await page.locator('.qtab').nth(1).click();
+  assert.equal(await getSql(), 'SELECT 2');
+  assert.equal(await page.locator('.qtab[aria-selected="true"]').getAttribute('data-tab-id'), await page.evaluate(() => window.__sqlpad.tabs.active()));
+  await page.locator('.qtab-item').nth(1).locator('.qtab-close').click();
+  assert.equal(await tabCount(), 1);
+  assert.equal(await getSql(), 'SELECT 1');
+  // 마지막 탭의 닫기는 내용 비우기
+  await page.locator('.qtab-close').first().click();
+  assert.equal(await tabCount(), 1);
+  assert.equal(await getSql(), '');
+});
+
+test('쿼리 탭: 단축키와 닫은 탭 복구', { skip }, async () => {
+  await setSql('SELECT 10');
+  await focusEditor();
+  await page.keyboard.press('Alt+n');
+  assert.equal(await tabCount(), 2);
+  await setSql('SELECT 20');
+  await focusEditor();
+  await page.keyboard.press('Alt+1');
+  assert.equal(await getSql(), 'SELECT 10');
+  await page.keyboard.press('Alt+PageDown');
+  assert.equal(await getSql(), 'SELECT 20');
+  await page.keyboard.press('Alt+PageUp');
+  assert.equal(await getSql(), 'SELECT 10');
+  await page.keyboard.press('Alt+w');
+  assert.equal(await tabCount(), 1);
+  assert.equal(await getSql(), 'SELECT 20');
+  await page.keyboard.press('Control+Shift+T');
+  assert.equal(await tabCount(), 2);
+  assert.equal(await getSql(), 'SELECT 10');
+});
+
+test('쿼리 탭: 이름 바꾸기와 새로고침 뒤 복원', { skip }, async () => {
+  const first = page.locator('.qtab').nth(0);
+  assert.equal((await first.textContent()).trim(), 'SELECT 20'); // 자동 이름
+  await first.dblclick();
+  await page.fill('.qtab-edit', '내 탭');
+  await page.keyboard.press('Enter');
+  assert.equal((await page.locator('.qtab').nth(0).textContent()).trim(), '내 탭');
+  await page.locator('.qtab').nth(0).dblclick();
+  await page.fill('.qtab-edit', '버림');
+  await page.keyboard.press('Escape');
+  assert.equal((await page.locator('.qtab').nth(0).textContent()).trim(), '내 탭');
+  await page.locator('.qtab').nth(1).click();
+  const before = await tabList();
+  await page.waitForTimeout(800);
+  await page.reload();
+  await page.waitForSelector('.qtab');
+  const after = await tabList();
+  assert.deepEqual(after.map((t) => [t.id, t.name]), before.map((t) => [t.id, t.name]));
+  assert.equal(await page.evaluate(() => window.__sqlpad.tabs.active()), before[1].id);
+  assert.equal(await getSql(), 'SELECT 10');
+  await page.locator('.qtab').nth(0).click();
+  assert.equal(await getSql(), 'SELECT 20');
+});
+
+test('쿼리 탭: 테이블 Ctrl+클릭은 새 탭에서 바로 조회한다', { skip }, async () => {
+  await page.click('#btn-samples');
+  await page.click('[data-sample="chinook"]');
+  await page.waitForSelector('.obj');
+  const n = await tabCount();
+  await page.click('.obj[data-name="Artist"] [data-act="select"]', { modifiers: ['Control'] });
+  await page.waitForSelector('#pane-results table.grid');
+  assert.equal(await tabCount(), n + 1);
+  assert.equal(await getSql(), 'SELECT * FROM "Artist" LIMIT 100;');
+  assert.equal((await page.locator('.qtab[aria-selected="true"]').textContent()).trim(), 'Artist');
+  assert.equal(await page.locator('#pane-results table.grid tbody tr').count(), 100);
+  await page.hover('.obj[data-name="Album"] .obj-row');
+  await page.click('.obj[data-name="Album"] .quick');
+  await page.waitForFunction(() => /Album/.test(window.__sqlpad.editor.getValue()));
+  assert.equal(await tabCount(), n + 2);
+});
+
 test('콘솔과 페이지 오류가 없다', { skip }, async () => {
   assert.deepEqual(errors, []);
 });

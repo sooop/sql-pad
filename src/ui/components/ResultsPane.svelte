@@ -3,6 +3,7 @@
   import { formatDuration } from '../../core/format.js';
   import { fmtN, setMaxRows, copyResult, csvResult } from '../actions.js';
   import { gridHtml } from './grid.js';
+  import ErrorHint from './ErrorHint.svelte';
 
   const list = $derived(app.results ? app.results.list : []);
   const cur = $derived(list[app.resultActive]);
@@ -24,7 +25,7 @@
   {:else if cur.info}
     <div class="ok-box" role="status">{cur.info}</div>
   {:else if cur.error}
-    <div class="err-box" role="alert"><div>{cur.error}</div>{#if cur.sql}<pre class="stmt">{cur.sql}</pre>{/if}</div>
+    <ErrorHint error={cur.error} sql={cur.sql || ''} />
   {:else if !cur.columns.length}
     <div class="ok-box" role="status">{cur.kind} 완료{cur.changes != null ? ` · ${fmtN(cur.changes)}행 변경` : ''} · {formatDuration(cur.ms)}</div>
   {:else}

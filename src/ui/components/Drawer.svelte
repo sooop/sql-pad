@@ -2,6 +2,7 @@
   import { app } from '../state.svelte.js';
   import { escapeHtml as esc } from '../../core/format.js';
   import * as H from '../../core/history.js';
+  import Cheatsheet from './Cheatsheet.svelte';
   import { bindDropZone } from '../dropzone.js';
   import {
     fmtN, closeDrawer, setDrawerTab, loadEntry, deleteEntry, clearAll, clearCancel, clearConfirm,
@@ -9,7 +10,7 @@
   } from '../actions.js';
 
   const d = app.drawer;
-  const TABS = [['history', '내역'], ['saved', '저장됨'], ['backup', '백업']];
+  const TABS = [['history', '내역'], ['saved', '저장됨'], ['backup', '백업'], ['cheat', '참고']];
   let json = $state('');
   let saveName = $state('');
   let fileEl = $state();
@@ -63,6 +64,8 @@
       <div class="field-row"><button class="btn" type="button" data-act="d-pick" onclick={() => fileEl.click()}>파일에서 가져오기</button><button class="btn primary" type="button" data-act="d-import" onclick={() => importBackup(json)}>가져오기</button></div>
       <div id="d-msg" class="meta-text" role="status">{d.importMsg}</div>
       <input id="d-file" type="file" accept=".json,application/json" hidden bind:this={fileEl} onchange={pickFile}>
+    {:else if d.open && d.tab === 'cheat'}
+      <Cheatsheet />
     {:else if d.open}
       {#if isSaved}
         <form id="d-save-form" class="field-row" onsubmit={submit}><input id="d-name" class="text-in" type="text" placeholder="이름" aria-label="저장할 이름" maxlength="80" autocomplete="off" bind:value={saveName}><button class="btn primary" type="submit" disabled={!d.canSave}>저장</button></form>

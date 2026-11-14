@@ -34,6 +34,7 @@ UI는 Svelte 5(runes)이고 esbuild-svelte로 번들한다. Vite와 SvelteKit은
 - 컴포넌트 `<style>`은 레이아웃에만 쓰고 색은 CSS 변수만 쓴다. 전역 스타일(`styles.css`)을 우선한다. esbuild-svelte는 `css: 'injected'`라 별도 CSS 파이프라인이 없다.
 - e2e는 DOM id, 클래스, `data-*` 속성에 의존한다(`#btn-run`, `.file-item`, `[data-act="select"]`, `[data-dtab]` 등). 마크업을 고칠 때 이 식별자를 그대로 두거나 `test/e2e.test.mjs`를 함께 고친다.
 - 서랍을 열면 `#app`의 `inert`는 `app.drawer.open`으로 건다. 서랍을 닫은 직후 포커스를 옮길 때는 DOM이 갱신된 뒤(`await tick()`)에 한다.
+- 서랍 "참고" 탭은 `cheatsheet.js` 데이터를 `Cheatsheet.svelte`로 보여 주고(검색어·펼침은 `cheat-state.svelte.js`), 편집기에서 F1 은 커서 아래 단어로 이 탭을 연다(`App.svelte`).
 
 ## 화면 규칙
 
@@ -47,12 +48,12 @@ UI는 Svelte 5(runes)이고 esbuild-svelte로 번들한다. Vite와 SvelteKit은
 
 ## 알아둘 점
 
-- 편집기는 CodeMirror 6(`src/ui/editor.js`)이다. 색과 글꼴은 JS 테마를 쓰지 않고 `styles.css`의 `.editor .cm-*` 선택자와 CSS 변수로 지정한다. 구문 강조는 `HighlightStyle`이 기존 클래스(`t-kw` 등)에 매핑하고, 현재 문 강조는 `src/ui/editor-statement.js`에 있다. 스키마 자동완성은 `editor.setSchema()`에 `{테이블: [열]}`을 넘긴다. 편집기 내용은 초안(`kvSet('draft', ...)`)으로 저장된다.
+- 편집기는 CodeMirror 6(`src/ui/editor.js`)이다. 색과 글꼴은 JS 테마를 쓰지 않고 `styles.css`의 `.editor .cm-*` 선택자와 CSS 변수로 지정한다. 구문 강조는 `HighlightStyle`이 기존 클래스(`t-kw` 등)에 매핑하고, 현재 문 강조는 `src/ui/editor-statement.js`에 있다. 스키마 자동완성은 `editor.setSchema()`에 `{테이블: [열]}`을 넘긴다. 편집기는 탭 여러 개를 두며(`app.tabs`, 문서는 반응형 밖 `tabStates`의 EditorState, 전환은 `view.setState`), 탭 목록과 문서는 `kvSet('tabs', ...)`로 저장된다(예전 `draft`는 첫 탭으로 옮긴다).
 - 워커 소스는 `sql-wasm.js` 뒤에 `src/worker/entry.js` 번들을 이어 붙인 것이다(`scripts/build.mjs`). 워커 안에서 `import`로 sql.js를 가져오지 않는다.
 - `<input type="file">`에 `accept`를 두지 않았다. iOS에서 `.sqlite` 같은 확장자 파일이 비활성으로 보일 수 있어서다. 형식은 읽은 내용으로 판별한다.
 - 저장소는 `store.js`가 IndexedDB, localStorage, 메모리 순으로 조용히 넘어간다. 저장소를 못 써도 앱은 동작해야 한다.
 - Node 22의 `node --test`는 디렉터리 대신 글롭을 받는다(`'test/*.test.mjs'`).
-- 디버깅용으로 `window.__sqlpad`에 `state`, `run`, `openSample`, `handleFiles`, `editor`, `getSql`, `setSql`, `setCursor`가 노출되어 있다.
+- 디버깅용으로 `window.__sqlpad`에 `state`, `run`, `openSample`, `handleFiles`, `editor`, `getSql`, `setSql`, `setCursor`, `tabs`(`list`, `active`, `add`, `close`, `select`)가 노출되어 있다.
 
 ## 샘플 DB 추가
 

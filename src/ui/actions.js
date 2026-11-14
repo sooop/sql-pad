@@ -1,11 +1,11 @@
 // 상태를 바꾸는 동작. DB 작업은 모두 워커(core/engine.js)에 요청한다. 화면 그리기는 컴포넌트가 상태를 읽어서 한다.
 import { tick } from 'svelte';
 import { splitStatements, statementIndexAt } from '../core/sqlsplit.js';
-import { humanBytes, toDelimited, identForSql } from '../core/format.js';
+import { humanBytes, toDelimited, identForSql, quoteIdent } from '../core/format.js';
 import * as H from '../core/history.js';
 import { kvGet, kvSet, saveSettings } from './store.js';
 import { SAMPLES, sampleForName, genericExample } from './samples.js';
-import { app, settings, getSession, activeSession, getAssets, b64ToBytes, createSession, refreshSchema, restoreSession, disposeSession, clientOf } from './state.svelte.js';
+import { app, settings, tabStates, getSession, activeSession, getAssets, b64ToBytes, createSession, refreshSchema, restoreSession, disposeSession, clientOf } from './state.svelte.js';
 
 const MAX_DB_BYTES = 256 * 1024 * 1024;
 export const fmtN = (n) => Number(n).toLocaleString('ko-KR');
@@ -100,6 +100,7 @@ export async function openSample(id) {
 /** 파일 열기 버튼, 드롭 모두 이 함수로 모인다. 형식은 내용으로 판정한다. */
 export async function handleFiles(files) {
   let sqlText = null;
+  let sqlName = '';
   let ignored = 0;
   for (const f of files) {
     if (f.size > MAX_DB_BYTES) { notify(`${f.name}: ${humanBytes(MAX_DB_BYTES)}를 넘는 파일은 열 수 없습니다.`); continue; }
@@ -117,10 +118,10 @@ export async function handleFiles(files) {
     }
     if (text === null) { notify(`${f.name}: SQLite 파일(.sqlite, .db) 또는 SQL 텍스트(.sql, .txt)만 열 수 있습니다.`); continue; }
     if (text.length > H.LIMITS.sqlMaxChars) { notify(`${f.name}: SQL 텍스트가 ${fmtN(H.LIMITS.sqlMaxChars)}자를 넘습니다.`); continue; }
-    if (sqlText === null) sqlText = text; else ignored++;
+    if (sqlText === null) { sqlText = text; sqlName = f.name; } else ignored++;
   }
-  if (sqlText !== null) setEditorSql(sqlText, { focus: true });
-  if (ignored) notify(`SQL 텍스트는 한 번에 하나만 편집기에 넣을 수 있어 ${ignored}개를 건너뛰었습니다.`);
+  if (sqlText !== null) addTab(sqlText, { name: sqlName });
+  if (ignored) notify(`SQL 텍스트는 한 번에 하나만 새 탭으로 열 수 있어 ${ignored}개를 건너뛰었습니다.`);
 }
 
 let detailToken = 0;
@@ -444,11 +445,162 @@ export function setEditorHeight(h) {
 }
 export const persistSettings = () => saveSettings(settings);
 
+
+// ---------- 쿼리 편집기 탭 ----------
+// 탭의 문서(EditorState)는 state.svelte.js 의 tabStates 에 둔다. 활성 탭의 최신 상태는 편집기 view 가 들고 있으므로
+// 전환 직전에 stashActive() 로 맡겨 둔다. view.setState() 로 바꿔 끼우면 실행 취소 내역·커서가 탭별로 유지된다.
+const tabScroll = new Map(); // id -> scrollTop
+const tabNum = new Map(); // id -> 자동 이름에 쓸 번호('쿼리 N')
+let tabSeq = 0;
+let numSeq = 0;
+let lastClosed = null; // { sql, name } 최근 닫은 탭 1개
+let tabSaveTimer = 0;
+
+/** 첫 비주석·비공백 줄 앞 24자. 없으면 null. */
+export function autoNameOf(text) {
+  const body = text.replace(/\/\*[\s\S]*?(\*\/|$)/g, '').replace(/--[^\n]*/g, '');
+  const line = body.split('\n').map((l) => l.trim()).find(Boolean);
+  return line ? line.slice(0, 24) : null;
+}
+const autoFor = (id, text) => autoNameOf(text) || `쿼리 ${tabNum.get(id)}`;
+export const tabLabel = (t) => t.name || t.auto;
+
+const tabDoc = (id) => (id === app.activeTab ? ed().getValue() : tabStates.has(id) ? tabStates.get(id).doc.toString() : '');
+
+function stashActive() {
+  if (!app.activeTab || !ed()) return;
+  tabStates.set(app.activeTab, ed().getState());
+  tabScroll.set(app.activeTab, ed().view.scrollDOM.scrollTop);
+}
+
+export function saveTabsSoon() {
+  clearTimeout(tabSaveTimer);
+  tabSaveTimer = setTimeout(() => {
+    if (!ed()) return;
+    kvSet('tabs', { active: app.activeTab, list: app.tabs.map((t) => ({ id: t.id, name: t.name, sql: tabDoc(t.id) })) });
+  }, 500);
+}
+
+/** 편집기 문서가 바뀔 때(EditorPane 이 연결): 활성 탭의 자동 이름을 갱신하고 저장을 예약한다. */
+export function onEditorChange(text) {
+  const t = app.tabs.find((x) => x.id === app.activeTab);
+  if (t) { const a = autoFor(t.id, text); if (t.auto !== a) t.auto = a; }
+  saveTabsSoon();
+}
+
+function show(id) {
+  app.activeTab = id;
+  ed().setState(tabStates.get(id));
+  const top = tabScroll.get(id) || 0;
+  requestAnimationFrame(() => { if (app.activeTab === id && ed()) ed().view.scrollDOM.scrollTop = top; });
+}
+
+function makeTab(doc, name) {
+  const id = 't' + (++tabSeq) + Date.now().toString(36);
+  tabNum.set(id, ++numSeq);
+  tabStates.set(id, ed().createState(doc));
+  app.tabs.push({ id, name: name || '', auto: autoFor(id, doc) });
+  return id;
+}
+
+export function addTab(doc = '', { name = '', focus = true } = {}) {
+  if (!ed()) return null;
+  stashActive();
+  const id = makeTab(doc, name);
+  show(id);
+  saveTabsSoon();
+  if (focus) ed().focus();
+  return id;
+}
+
+export function selectTab(id, { focus = true } = {}) {
+  if (!app.tabs.some((t) => t.id === id)) return;
+  if (id !== app.activeTab) {
+    stashActive();
+    show(id);
+    saveTabsSoon();
+  }
+  if (focus) ed().focus();
+}
+
+export function closeTab(id = app.activeTab) {
+  const i = app.tabs.findIndex((t) => t.id === id);
+  if (i < 0) return;
+  if (app.tabs.length === 1) { setEditorSql('', { focus: true }); return; } // 탭은 항상 1개 이상: 내용 비우기
+  const doc = tabDoc(id);
+  if (doc.trim()) lastClosed = { sql: doc, name: app.tabs[i].name };
+  const wasActive = id === app.activeTab;
+  app.tabs.splice(i, 1);
+  tabStates.delete(id); tabScroll.delete(id); tabNum.delete(id);
+  if (wasActive) { app.activeTab = null; show(app.tabs[Math.min(i, app.tabs.length - 1)].id); ed().focus(); }
+  saveTabsSoon();
+}
+
+export function restoreClosedTab() {
+  if (!lastClosed) return;
+  const { sql, name } = lastClosed;
+  lastClosed = null;
+  addTab(sql, { name });
+}
+
+export function renameTab(id, name) {
+  const t = app.tabs.find((x) => x.id === id);
+  if (!t) return;
+  t.name = name.trim();
+  saveTabsSoon();
+}
+
+export function stepTab(dir) {
+  const n = app.tabs.length;
+  const i = app.tabs.findIndex((t) => t.id === app.activeTab);
+  if (n < 2 || i < 0) return;
+  selectTab(app.tabs[(i + dir + n) % n].id);
+}
+
+/** 편집기 단축키(onTab) 처리 */
+export function onTabKey(action) {
+  if (action === 'new') addTab();
+  else if (action === 'close') closeTab();
+  else if (action === 'restore') restoreClosedTab();
+  else if (action === 'prev') stepTab(-1);
+  else if (action === 'next') stepTab(1);
+  else if (/^[1-9]$/.test(action)) { const t = app.tabs[Number(action) - 1]; if (t) selectTab(t.id); }
+}
+
+/** 테이블을 새 탭에서 바로 조회한다(Ctrl+클릭, 호버 버튼). */
+export function quickSelect(name) {
+  app.navOpen = false;
+  addTab(`SELECT * FROM ${quoteIdent(name)} LIMIT 100;`, { name });
+  return run('all');
+}
+
+async function restoreTabs() {
+  const saved = await kvGet('tabs', null);
+  const list = saved && Array.isArray(saved.list) ? saved.list.filter((x) => x && typeof x.id === 'string') : [];
+  if (list.length) {
+    for (const x of list) {
+      tabNum.set(x.id, ++numSeq);
+      tabStates.set(x.id, ed().createState(typeof x.sql === 'string' ? x.sql : ''));
+      app.tabs.push({ id: x.id, name: typeof x.name === 'string' ? x.name : '', auto: autoFor(x.id, tabStates.get(x.id).doc.toString()) });
+    }
+    show(list.some((x) => x.id === saved.active) ? saved.active : list[0].id);
+    return;
+  }
+  // 탭 저장이 없으면 예전 초안을 첫 탭으로 옮긴다
+  const draft = await kvGet('draft', '');
+  if (typeof draft === 'string' && draft.trim() && !ed().getValue().trim()) ed().setValue(draft, { cursor: 'end' });
+  const id = 't' + (++tabSeq) + Date.now().toString(36);
+  tabNum.set(id, ++numSeq);
+  app.tabs.push({ id, name: '', auto: autoFor(id, ed().getValue()) });
+  app.activeTab = id; // 편집기가 이미 들고 있는 상태가 첫 탭의 문서다
+  if (draft) kvSet('draft', '');
+  saveTabsSoon();
+}
+
 // ---------- 시작 ----------
 export async function boot() {
   if (window.matchMedia('(max-width: 899px)').matches) app.navOpen = true;
   await loadStores();
-  const draft = await kvGet('draft', '');
-  if (typeof draft === 'string' && draft.trim()) ed().setValue(draft, { cursor: 'end' });
+  await restoreTabs();
   ed().focus();
 }

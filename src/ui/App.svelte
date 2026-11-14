@@ -1,7 +1,10 @@
 <script>
+  import { tick } from 'svelte';
+  import { cheat } from './cheat-state.svelte.js';
+  import { lookupWord } from './cheatsheet.js';
   import { onMount } from 'svelte';
   import { app, settings } from './state.svelte.js';
-  import { boot, handleFiles, closeDrawer, loadStores } from './actions.js';
+  import { boot, handleFiles, closeDrawer, loadStores, openDrawer, ref } from './actions.js';
   import { bindDropZone } from './dropzone.js';
   import Topbar from './components/Topbar.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -32,7 +35,20 @@
     boot();
   });
 
+  function onF1(e) {
+    if (document.activeElement?.id !== 'sql' || !ref.editor) return;
+    e.preventDefault();
+    const st = ref.editor.view.state;
+    const r = st.wordAt(st.selection.main.head);
+    const word = r ? st.sliceDoc(r.from, r.to) : '';
+    const hit = lookupWord(word);
+    cheat.query = hit ? '' : word;
+    cheat.openId = hit ? hit.id : null;
+    openDrawer('cheat');
+    if (hit) tick().then(() => document.querySelector(`[data-cs-id="${hit.id}"]`)?.scrollIntoView({ block: 'nearest' }));
+  }
   function onKeydown(e) {
+    if (e.key === 'F1') { onF1(e); return; }
     if (e.key !== 'Escape') return;
     if (app.sampleMenu) { app.sampleMenu = false; document.getElementById('btn-samples')?.focus(); }
     else if (app.drawer.open) closeDrawer();

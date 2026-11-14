@@ -13,6 +13,7 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { sql, SQLite, SQLDialect } from '@codemirror/lang-sql';
 import { tags } from '@lezer/highlight';
 import { currentStatementHighlight } from './editor-statement.js';
+import { diagnosticsExtension, setDiagnostics } from './editor-diagnostics.js';
 
 // lang-sql 의 styleTags: Keyword/Type/Bool/Null -> keyword/typeName/bool/null, String/Bytes -> string,
 // Number/Bits -> number, QuotedIdentifier -> special(string), Line/BlockComment -> comment. 연산자·괄호·식별자는 본문색.
@@ -58,22 +59,32 @@ function addCursorVertically(dir) {
   };
 }
 
-export function createEditor(parent, { onRun = () => {}, onChange = () => {} } = {}) {
+export function createEditor(parent, { onRun = () => {}, onChange = () => {}, onTab = () => {} } = {}) {
   const sqlConf = new Compartment();
   const sqlExt = (schema) => sql({ dialect: SQLITE, schema: schema || undefined, upperCaseKeywords: true });
+  let currentSchema = null;
+  const changeListeners = [onChange];
 
   const runKeys = Prec.highest(keymap.of([
     { key: 'Mod-Enter', run: () => { onRun('current'); return true; } },
     { key: 'Mod-Shift-Enter', run: () => { onRun('all'); return true; } },
   ]));
 
-  const view = new EditorView({
-    parent,
-    state: EditorState.create({
-      doc: '',
-      extensions: [
+  const tabKeys = Prec.highest(keymap.of([
+    { key: 'Alt-n', run: () => { onTab('new'); return true; } },
+    { key: 'Alt-w', run: () => { onTab('close'); return true; } },
+    { key: 'Alt-PageUp', run: () => { onTab('prev'); return true; } },
+    { key: 'Alt-PageDown', run: () => { onTab('next'); return true; } },
+    { key: 'Ctrl-Shift-t', run: () => { onTab('restore'); return true; } },
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ key: 'Alt-' + n, run: () => { onTab(String(n)); return true; } })),
+  ]));
+
+  // 탭마다 상태(EditorState)를 따로 두므로 확장 집합을 함수로 만들어 새 상태에도 같게 쓴다.
+  const makeExtensions = () => [
         runKeys,
-        sqlConf.of(sqlExt(null)),
+        tabKeys,
+        sqlConf.of(sqlExt(currentSchema)),
+        diagnosticsExtension(),
         syntaxHighlighting(highlightStyle),
         lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(),
         history(), drawSelection(),
@@ -94,9 +105,16 @@ export function createEditor(parent, { onRun = () => {}, onChange = () => {} } =
           // completionKeymap 은 autocompletion() 이 최고 우선순위로 직접 등록하므로 여기 넣지 않는다
           ...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab,
         ]),
-        EditorView.updateListener.of((u) => { if (u.docChanged) onChange(u.state.doc.toString()); }),
-      ],
-    }),
+        EditorView.updateListener.of((u) => {
+          if (!u.docChanged) return;
+          const text = u.state.doc.toString();
+          for (const cb of changeListeners) cb(text);
+        }),
+  ];
+
+  const view = new EditorView({
+    parent,
+    state: EditorState.create({ doc: '', extensions: makeExtensions() }),
   });
 
   return {
@@ -124,7 +142,43 @@ export function createEditor(parent, { onRun = () => {}, onChange = () => {} } =
       view.focus();
     },
     setSchema(schema) {
+      currentSchema = schema;
       view.dispatch({ effects: sqlConf.reconfigure(sqlExt(schema)) });
+    },
+    getSchema: () => currentSchema,
+    /** 현재 문서 상태(실행 취소 내역·선택 포함). 탭 전환 때 보관한다. */
+    getState: () => view.state,
+    /** 같은 확장 집합으로 새 상태를 만든다(현재 스키마 반영). */
+    createState(doc, { cursor = 'end' } = {}) {
+      return EditorState.create({
+        doc,
+        selection: { anchor: cursor === 'start' ? 0 : doc.length },
+        extensions: makeExtensions(),
+      });
+    },
+    /** 보관해 둔 상태로 바꿔 끼운다. Compartment 는 상태마다 따로 적용되므로 스키마를 다시 넣고, 변경 구독자에게 새 문서를 알린다. */
+    setState(state) {
+      view.setState(state);
+      view.dispatch({ effects: sqlConf.reconfigure(sqlExt(currentSchema)) });
+      const text = view.state.doc.toString();
+      for (const cb of changeListeners) cb(text);
+    },
+    /** 문서가 바뀔 때마다 text 를 받는 콜백을 추가한다. 해제 함수를 돌려준다. */
+    onChange(cb) {
+      changeListeners.push(cb);
+      return () => { const i = changeListeners.indexOf(cb); if (i >= 0) changeListeners.splice(i, 1); };
+    },
+    /** 오류·경고 밑줄. list: [{ from, to, severity: 'error'|'warning', message }] (문서 전체 기준 오프셋). 빈 배열이면 지운다. */
+    setDiagnostics(list) {
+      setDiagnostics(view, list);
+    },
+    /** 선택 영역을 잡고 보이게 스크롤한다. */
+    select(from, to, { focus = true } = {}) {
+      const len = view.state.doc.length;
+      const a = Math.min(Math.max(0, from), len);
+      const b = Math.min(Math.max(0, to), len);
+      view.dispatch({ selection: { anchor: a, head: b }, scrollIntoView: true });
+      if (focus) view.focus();
     },
     focus: () => view.focus(),
   };
