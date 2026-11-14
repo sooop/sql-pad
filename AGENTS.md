@@ -5,8 +5,9 @@ SQLite 파일을 브라우저에서 열어 쿼리를 연습하는 단일 HTML �
 ## 명령
 
 ```
-npm install          # sql.js, esbuild
+npm install          # sql.js, esbuild, svelte, esbuild-svelte
 npm run build        # dist/sqlpad.html 생성 (--no-samples 를 붙이면 샘플 제외)
+npm run dev          # http://localhost:5178 에서 src/, samples/ 변경 때마다 다시 빌드하고 브라우저를 새로고침한다 (새로고침 스크립트는 dev 응답에만 들어간다)
 npm test             # 단위 테스트 + e2e. playwright나 Chrome이 없으면 e2e만 건너뛴다
 SQLPAD_SHOTS=/tmp/shots node --test test/e2e.test.mjs   # 스크린샷 저장
 ```
@@ -16,11 +17,23 @@ e2e는 `dist/sqlpad.html`을 연다. Chrome은 Linux, Windows, macOS 기본 설�
 ## 작업 규칙
 
 - DOM이 필요 없는 로직은 `src/core/`에 둔다. 워커와 node 테스트가 이 파일을 그대로 쓰므로 `document`, `window`를 쓰지 않는다.
-- DB 접근은 화면에서 직접 하지 않고 워커 요청으로 한다. 새 요청을 추가하려면 `engine.js`에 함수를 만들고 `src/worker/entry.js`의 `handlers`에 연결한 뒤 `app.js`에서 `session.client.call('이름', 인자)`로 부른다.
+- DB 접근은 화면에서 직접 하지 않고 워커 요청으로 한다. 새 요청을 추가하려면 `engine.js`에 함수를 만들고 `src/worker/entry.js`의 `handlers`에 연결한 뒤 `actions.js`에서 `clientOf(세션id).call('이름', 인자)`로 부른다.
 - 반환값은 `postMessage`로 복제할 수 있는 값만 쓴다. `Uint8Array` BLOB은 `engine.js`가 `{$blob: n}`으로 바꾼다.
-- 사용자 입력과 DB 값은 `esc()`(`escapeHtml`)를 거쳐 `innerHTML`에 넣는다. 속성값에도 쓴다.
+- 사용자 입력과 DB 값은 Svelte 마크업의 `{값}`으로 넣어 자동 이스케이프에 맡긴다. `{@html}`은 `esc()`(`escapeHtml`)를 거친 문자열(결과 표, 구문 강조, 검색어 강조)에만 쓴다.
 - 파일을 고칠 때는 `Edit`나 스크립트로 부분 수정한다. 파일 전체를 다시 쓰지 않는다. 바이너리(.sqlite)는 텍스트 도구로 열지 않는다.
 - 큰 DB 데이터는 코드(`sqlite3`, `python3 -I`)로 가공한다.
+
+## UI 구조 (Svelte 5)
+
+UI는 Svelte 5(runes)이고 esbuild-svelte로 번들한다. Vite와 SvelteKit은 쓰지 않는다.
+
+- `src/ui/main.js`: 진입점. `App`을 `#root`에 마운트하고 `window.__sqlpad`를 노출한다.
+- `src/ui/state.svelte.js`: 앱 상태(`app`, `settings`)와 세션. 세션은 평범한 객체로 `app.sessions`에 두고, 워커 클라이언트와 처음 바이트는 반응형 밖의 맵에 둔다. 세션은 `getSession(id)`로 꺼낸 객체를 고쳐야 화면이 갱신된다(만든 직후의 원본을 고치면 갱신되지 않는다). 크고 통째로 바뀌는 값(`results`, `detail`, `preview`, `history`, `saved`)은 `$state.raw`이므로 새 값으로 바꿔 넣는다.
+- `src/ui/actions.js`: 상태를 바꾸는 동작(열기, 실행, 취소, 선택, 내역, 서랍). 컴포넌트는 상태를 읽고, 바꿀 때는 이 파일의 함수를 부른다.
+- `src/ui/components/`: `Topbar`, `Sidebar`, `EditorPane`, `ResultsPane`, `TablePane`, `Drawer`, `Splitter`. 결과 표 HTML은 `grid.js`. 팝오버 열림 같은 작은 로컬 상태만 컴포넌트 안 `$state`로 둔다.
+- 컴포넌트 `<style>`은 레이아웃에만 쓰고 색은 CSS 변수만 쓴다. 전역 스타일(`styles.css`)을 우선한다. esbuild-svelte는 `css: 'injected'`라 별도 CSS 파이프라인이 없다.
+- e2e는 DOM id, 클래스, `data-*` 속성에 의존한다(`#btn-run`, `.file-item`, `[data-act="select"]`, `[data-dtab]` 등). 마크업을 고칠 때 이 식별자를 그대로 두거나 `test/e2e.test.mjs`를 함께 고친다.
+- 서랍을 열면 `#app`의 `inert`는 `app.drawer.open`으로 건다. 서랍을 닫은 직후 포커스를 옮길 때는 DOM이 갱신된 뒤(`await tick()`)에 한다.
 
 ## 화면 규칙
 

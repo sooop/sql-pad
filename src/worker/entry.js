@@ -14,6 +14,7 @@ const handlers = {
   schema: () => engine.schema(),
   detail: ({ name }) => engine.detail(name),
   run: ({ sql, maxRows }) => engine.run(sql, { maxRows }),
+  check: ({ sql }) => engine.check(sql),
   preview: ({ name, limit, offset }) => engine.preview(name, { limit, offset }),
   export: () => engine.exportDb(),
 };

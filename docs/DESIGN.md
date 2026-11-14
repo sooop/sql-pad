@@ -37,16 +37,21 @@ src/core/      DOM이 없는 로직. 워커, 화면, node 테스트가 같은 �
   history.js     내역과 저장한 쿼리의 순수 로직(중복 합치기, 검색, 백업 병합)
 src/worker/entry.js   워커 진입점. 메시지를 engine 호출로 바꾼다.
 src/ui/        화면
-  app.js         상태, 렌더, 동작, 이벤트 연결
+  main.js        진입점(App 마운트, window.__sqlpad)
+  App.svelte     전체 골격(드롭 오버레이, 서랍, 전역 키)
+  state.svelte.js  $state 로 만든 앱 상태, settings, 세션
+  actions.js     상태를 바꾸는 동작(열기, 실행, 내역 등)
+  components/    Topbar, Sidebar, EditorPane, ResultsPane, TablePane, Drawer, Splitter
   editor.js      CodeMirror 6 편집기 래퍼
   editor-statement.js  현재 문 강조(커서가 속한 문의 줄 표시)
-  template.html  마크업과 아이콘 스프라이트
+  template.html  아이콘 스프라이트와 마운트 자리(#root)
   styles.css     테마(CSS 변수), 레이아웃
   store.js       IndexedDB, localStorage, 메모리 순 저장소와 설정
   dropzone.js    파일 드롭
   worker-client.js  Blob 워커 요청/응답과 취소
   samples.js     내장 샘플 목록과 예시 쿼리
-scripts/build.mjs  단일 HTML 생성
+scripts/build.mjs  단일 HTML 생성(esbuild + esbuild-svelte)
+scripts/dev.mjs    개발 서버(npm run dev, 변경 시 다시 빌드하고 브라우저 새로고침)
 samples/       내장 DB 파일과 출처
 test/          core.test.mjs(단위), e2e.test.mjs(Chrome)
 ```
@@ -67,6 +72,7 @@ test/          core.test.mjs(단위), e2e.test.mjs(Chrome)
 - **내역은 실행한 SQL만 저장한다.** 같은 SQL은 한 건으로 합치고 최신순으로 둔다. 편집기 내용은 초안으로 저장되어 새로고침 뒤 복원된다.
 - **편집기는 CodeMirror 6을 쓴다.** 투명 textarea를 겹치는 구조로는 멀티 커서와 자동완성 팝업을 만들기 어렵다. esbuild 번들에 들어가 `file://`와 외부 접근이 막힌 환경에서도 동작한다. 번들 크기는 약 400KB 늘어난다.
 - **결과는 최대 1,000행까지 표시한다.** 100, 1,000, 5,000 중에서 고른다. 한도를 넘는 행은 가져오지 않고 "이후 행은 표시하지 않음"을 알린다. 전체 행 수는 세지 않는다.
+- **UI는 Svelte 5를 쓴다(esbuild-svelte, Vite 없음).** 이유: innerHTML 재렌더로는 전환 효과와 탭·패널 확장이 어렵다. 상태는 `state.svelte.js`의 `$state`에 모으고 동작은 `actions.js`로 분리한다. 결과 표는 행이 많아 문자열로 만든 HTML을 `{@html}`로 넣는다.
 - **표시 문구는 한국어, 색은 CSS 변수로 둔다.** 테마는 오프화이트 바탕에 주황 강조이고 다크 모드를 지원한다.
 
 ## 구현 범위

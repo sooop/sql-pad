@@ -341,3 +341,5 @@ body[data-dragover] .drop-overlay { display: flex; }
   .btn { min-height: 36px; }
   .editor-pane:focus-within .keybar { display: grid; }
 }
+
+#root { height: 100%; }

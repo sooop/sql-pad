@@ -164,5 +164,28 @@ export function createEngine(SQL) {
     return need().export();
   }
 
-  return { open, close, schema, detail, run, preview, exportDb, isOpen: () => !!db };
+  /**
+   * 실행하지 않고 문법·이름 오류만 검사한다(편집기 실시간 검사용). 문마다 prepare 만 하고 step 은 하지 않는다.
+   * prepare 는 DB 를 바꾸지 않으므로 쓰기 문(CREATE, INSERT 등)도 안전하다.
+   * 한계: 같은 배치 앞 문이 만들 테이블·열은 아직 없으므로, 뒤 문이 "no such table" 등으로 실패할 수 있다.
+   * 오류가 나도 다음 문을 계속 검사한다(run 과 다르다).
+   * @returns {{results: ({start:number,end:number,kind:string,ok:true}|{start:number,end:number,kind:string,ok:false,error:string})[]}}
+   */
+  function check(sql) {
+    need();
+    const results = [];
+    for (const s of splitStatements(sql)) {
+      const kind = statementKind(s.text);
+      try {
+        need().prepare(s.text).free();
+        results.push({ start: s.start, end: s.end, kind, ok: true });
+      } catch (e) {
+        // sql.js 는 빈 문자열 등에서 Error 가 아니라 문자열을 던진다
+        results.push({ start: s.start, end: s.end, kind, ok: false, error: String(e && e.message ? e.message : e) });
+      }
+    }
+    return { results };
+  }
+
+  return { open, close, schema, detail, run, preview, exportDb, check, isOpen: () => !!db };
 }
