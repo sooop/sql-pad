@@ -36,7 +36,8 @@
     if (!s) { ref.editor.setSchema(null); return; }
     const schema = {};
     for (const o of s.objects) schema[o.name] = (o.columns || []).map((c) => c.name);
-    ref.editor.setSchema(schema);
+    const sel = app.selected && app.selected.sid === s.id ? app.selected.name : null;
+    ref.editor.setSchema(schema, sel);
   });
 
   const keep = (e) => e.preventDefault();

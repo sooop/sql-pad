@@ -61,8 +61,9 @@ function addCursorVertically(dir) {
 
 export function createEditor(parent, { onRun = () => {}, onChange = () => {}, onTab = () => {} } = {}) {
   const sqlConf = new Compartment();
-  const sqlExt = (schema) => sql({ dialect: SQLITE, schema: schema || undefined, upperCaseKeywords: true });
+  const sqlExt = (schema, table) => sql({ dialect: SQLITE, schema: schema || undefined, defaultTable: table && schema && schema[table] ? table : undefined, upperCaseKeywords: true });
   let currentSchema = null;
+  let currentTable = null;
   const changeListeners = [onChange];
 
   const runKeys = Prec.highest(keymap.of([
@@ -83,7 +84,7 @@ export function createEditor(parent, { onRun = () => {}, onChange = () => {}, on
   const makeExtensions = () => [
         runKeys,
         tabKeys,
-        sqlConf.of(sqlExt(currentSchema)),
+        sqlConf.of(sqlExt(currentSchema, currentTable)),
         diagnosticsExtension(),
         syntaxHighlighting(highlightStyle),
         lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(),
@@ -141,9 +142,11 @@ export function createEditor(parent, { onRun = () => {}, onChange = () => {}, on
       view.dispatch(view.state.replaceSelection(text), { scrollIntoView: true, userEvent: 'input' });
       view.focus();
     },
-    setSchema(schema) {
+    /** table: 사이드바에서 선택한 테이블·뷰. 앞에 테이블을 붙이지 않은 열 이름도 이 테이블 기준으로 완성한다. */
+    setSchema(schema, table = null) {
       currentSchema = schema;
-      view.dispatch({ effects: sqlConf.reconfigure(sqlExt(schema)) });
+      currentTable = table;
+      view.dispatch({ effects: sqlConf.reconfigure(sqlExt(schema, table)) });
     },
     getSchema: () => currentSchema,
     /** 현재 문서 상태(실행 취소 내역·선택 포함). 탭 전환 때 보관한다. */
@@ -159,7 +162,7 @@ export function createEditor(parent, { onRun = () => {}, onChange = () => {}, on
     /** 보관해 둔 상태로 바꿔 끼운다. Compartment 는 상태마다 따로 적용되므로 스키마를 다시 넣고, 변경 구독자에게 새 문서를 알린다. */
     setState(state) {
       view.setState(state);
-      view.dispatch({ effects: sqlConf.reconfigure(sqlExt(currentSchema)) });
+      view.dispatch({ effects: sqlConf.reconfigure(sqlExt(currentSchema, currentTable)) });
       const text = view.state.doc.toString();
       for (const cb of changeListeners) cb(text);
     },

@@ -30,7 +30,7 @@
   --code-size: 13px;
   --code-lh: 20px;
   --font: "Pretendard Variable", Pretendard, -apple-system, system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --mono: "Geist Mono", "Pretendard Variable", Pretendard, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: "Geist Mono", "Cascadia Mono", "Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "D2Coding", "Malgun Gothic", "Apple SD Gothic Neo", monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -222,9 +222,13 @@ h1, h2 { margin: 0; font-weight: 600; }
 .editor .cm-tooltip, .editor .cm-panels, .cm-tooltip {
   background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow); font-family: var(--mono);
 }
-.cm-tooltip-autocomplete > ul { font-family: var(--mono); font-size: var(--code-size); max-height: 240px; }
+.cm-tooltip.cm-tooltip-autocomplete > ul { font-family: var(--mono); font-size: var(--code-size); line-height: var(--code-lh); max-height: 240px; }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li, .cm-completionLabel, .cm-completionDetail { font-family: var(--mono); }
 .cm-tooltip-autocomplete ul li { padding: 2px 8px; color: var(--text); }
-.cm-tooltip-autocomplete ul li[aria-selected] { background: var(--accent-soft); color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li { padding: 2px 8px; color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--accent-soft); color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionLabel { color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail { color: var(--sub); }
 .cm-completionLabel { color: var(--text); }
 .cm-completionMatchedText { text-decoration: none; font-weight: 700; color: var(--accent-strong); }
 .cm-completionDetail { color: var(--sub); font-style: normal; margin-left: 8px; }
@@ -32910,8 +32914,9 @@ ORDER BY AvgPrice DESC;
   }, onTab = () => {
   } } = {}) {
     const sqlConf = new Compartment();
-    const sqlExt = (schema) => sql({ dialect: SQLITE, schema: schema || void 0, upperCaseKeywords: true });
+    const sqlExt = (schema, table) => sql({ dialect: SQLITE, schema: schema || void 0, defaultTable: table && schema && schema[table] ? table : void 0, upperCaseKeywords: true });
     let currentSchema = null;
+    let currentTable = null;
     const changeListeners = [onChange];
     const runKeys = Prec.highest(keymap.of([
       { key: "Mod-Enter", run: () => {
@@ -32952,7 +32957,7 @@ ORDER BY AvgPrice DESC;
     const makeExtensions = () => [
       runKeys,
       tabKeys,
-      sqlConf.of(sqlExt(currentSchema)),
+      sqlConf.of(sqlExt(currentSchema, currentTable)),
       diagnosticsExtension(),
       syntaxHighlighting(highlightStyle),
       lineNumbers(),
@@ -33023,9 +33028,11 @@ ORDER BY AvgPrice DESC;
         view.dispatch(view.state.replaceSelection(text2), { scrollIntoView: true, userEvent: "input" });
         view.focus();
       },
-      setSchema(schema) {
+      /** table: 사이드바에서 선택한 테이블·뷰. 앞에 테이블을 붙이지 않은 열 이름도 이 테이블 기준으로 완성한다. */
+      setSchema(schema, table = null) {
         currentSchema = schema;
-        view.dispatch({ effects: sqlConf.reconfigure(sqlExt(schema)) });
+        currentTable = table;
+        view.dispatch({ effects: sqlConf.reconfigure(sqlExt(schema, table)) });
       },
       getSchema: () => currentSchema,
       /** 현재 문서 상태(실행 취소 내역·선택 포함). 탭 전환 때 보관한다. */
@@ -33041,7 +33048,7 @@ ORDER BY AvgPrice DESC;
       /** 보관해 둔 상태로 바꿔 끼운다. Compartment 는 상태마다 따로 적용되므로 스키마를 다시 넣고, 변경 구독자에게 새 문서를 알린다. */
       setState(state2) {
         view.setState(state2);
-        view.dispatch({ effects: sqlConf.reconfigure(sqlExt(currentSchema)) });
+        view.dispatch({ effects: sqlConf.reconfigure(sqlExt(currentSchema, currentTable)) });
         const text2 = view.state.doc.toString();
         for (const cb of changeListeners) cb(text2);
       },
@@ -33560,7 +33567,8 @@ ${info.detail}` : info.title };
       }
       const schema = {};
       for (const o of get(s).objects) schema[o.name] = (o.columns || []).map((c) => c.name);
-      ref.editor.setSchema(schema);
+      const sel = app.selected && app.selected.sid === get(s).id ? app.selected.name : null;
+      ref.editor.setSchema(schema, sel);
     });
     const keep = (e) => e.preventDefault();
     user_effect(() => {

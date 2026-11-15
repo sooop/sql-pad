@@ -24,7 +24,7 @@
   --code-size: 13px;
   --code-lh: 20px;
   --font: "Pretendard Variable", Pretendard, -apple-system, system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --mono: "Geist Mono", "Pretendard Variable", Pretendard, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: "Geist Mono", "Cascadia Mono", "Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "D2Coding", "Malgun Gothic", "Apple SD Gothic Neo", monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -216,9 +216,13 @@ h1, h2 { margin: 0; font-weight: 600; }
 .editor .cm-tooltip, .editor .cm-panels, .cm-tooltip {
   background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow); font-family: var(--mono);
 }
-.cm-tooltip-autocomplete > ul { font-family: var(--mono); font-size: var(--code-size); max-height: 240px; }
+.cm-tooltip.cm-tooltip-autocomplete > ul { font-family: var(--mono); font-size: var(--code-size); line-height: var(--code-lh); max-height: 240px; }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li, .cm-completionLabel, .cm-completionDetail { font-family: var(--mono); }
 .cm-tooltip-autocomplete ul li { padding: 2px 8px; color: var(--text); }
-.cm-tooltip-autocomplete ul li[aria-selected] { background: var(--accent-soft); color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li { padding: 2px 8px; color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--accent-soft); color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionLabel { color: var(--text); }
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail { color: var(--sub); }
 .cm-completionLabel { color: var(--text); }
 .cm-completionMatchedText { text-decoration: none; font-weight: 700; color: var(--accent-strong); }
 .cm-completionDetail { color: var(--sub); font-style: normal; margin-left: 8px; }
