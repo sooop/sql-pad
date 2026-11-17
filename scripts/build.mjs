@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(root, p));
+// src/ui/icons 의 PNG 를 data URI 로 만든다(icon-forge 로 생성, 단일 파일에도 favicon 이 들어가도록)
+const icon = (f) => 'data:image/png;base64,' + read(`src/ui/icons/${f}`).toString('base64');
 const bundle = async (entry, plugins = []) =>
   (await build({
     entryPoints: [path.join(root, entry)], bundle: true, format: 'iife', target: 'es2020', write: false, legalComments: 'none',
@@ -36,6 +38,9 @@ export async function buildHtml({ withSamples = true } = {}) {
 
   const html = read('src/ui/template.html')
     .toString('utf8')
+    .replace('/*__ICON32__*/', () => icon('favicon-32x32.png'))
+    .replace('/*__ICON16__*/', () => icon('favicon-16x16.png'))
+    .replace('/*__ICON180__*/', () => icon('apple-touch-icon.png'))
     .replace('/*__STYLE__*/', () => read('src/ui/styles.css').toString('utf8'))
     .replace('/*__ASSETS__*/', () => safeJson)
     .replace('/*__SCRIPT__*/', () => safeJs);

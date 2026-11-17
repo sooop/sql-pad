@@ -1,0 +1,30 @@
+{
+  "format": "icon-forge",
+  "version": 1,
+  "settings": {
+    "icon": "Database",
+    "strokeColor": "#ffffff",
+    "strokeWidth": 2,
+    "autoStroke": true,
+    "bgShape": "square",
+    "bgColor": "#D97757",
+    "bgColor2": "#B4532E",
+    "bgGradient": false,
+    "bgRadius": 22,
+    "padding": 18,
+    "shadow": false,
+    "softenSmall": true,
+    "customSizes": [
+      24,
+      64,
+      256
+    ]
+  },
+  "selection": {
+    "extension": false,
+    "favicon": true,
+    "pwa": false,
+    "apple": true,
+    "custom": false
+  }
+}
